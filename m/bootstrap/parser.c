@@ -846,8 +846,14 @@ static Decl *parse_fn(Parser *p) {
         ret_type = parse_type(p);
     }
 
-    /* Body */
-    Stmt *body = parse_block(p);
+    /* Body — or forward declaration (just ';') */
+    Stmt *body = NULL;
+    if (match(p, TOK_SEMICOLON)) {
+        /* Forward declaration: fn name(...) -> T; */
+        body = NULL;
+    } else {
+        body = parse_block(p);
+    }
 
     Decl *d = ast_alloc_decl();
     d->kind = DECL_FN;

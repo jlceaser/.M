@@ -632,7 +632,9 @@ int compiler_compile(Compiler *c, Program *prog) {
         Decl *d = prog->decls[i];
         switch (d->kind) {
         case DECL_FN:
-            gen_function(c, d);
+            if (d->fn_body) {  /* skip forward declarations (no body) */
+                gen_function(c, d);
+            }
             break;
         case DECL_STRUCT:
             /* Struct layout tracked but no bytecode emitted */
