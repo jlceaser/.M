@@ -224,7 +224,7 @@ static VMResult run(VM *vm) {
                 vm_set_error(vm, "division by zero");
                 return VM_ERROR;
             }
-            if (a.type == VAL_INT && b.type == VAL_INT && a.i % b.i == 0)
+            if (a.type == VAL_INT && b.type == VAL_INT)
                 push(vm, make_int(a.i / b.i));
             else
                 push(vm, make_float(to_number(a) / to_number(b)));
