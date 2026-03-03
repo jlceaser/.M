@@ -74,6 +74,10 @@ cmake --build --preset dev
 # M lexer tests (C bootstrap)
 clang -std=c17 -o test_lexer m/bootstrap/lexer.c m/bootstrap/test_lexer.c
 ./test_lexer
+
+# M parser tests (C bootstrap)
+clang -std=c17 -o test_parser m/bootstrap/lexer.c m/bootstrap/parser.c core/tohum_memory.c m/bootstrap/test_parser.c
+./test_parser
 ```
 
 ## Status
@@ -81,7 +85,7 @@ clang -std=c17 -o test_lexer m/bootstrap/lexer.c m/bootstrap/test_lexer.c
 | Layer | Status |
 |-------|--------|
 | M lexer | 79/79 tests passing |
-| M parser | next |
+| M parser | 175/175 tests passing |
 | M codegen | planned |
 | M self-hosting | planned |
 | Machine VM (C++ prototype) | working |
