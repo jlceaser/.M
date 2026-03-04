@@ -22,6 +22,7 @@
 //   deps                      -show dependency tree (use directives)
 //   top [N]                   -show N largest functions (default 10)
 //   diff                      -show changes between two analyses
+//   compare <c_file> <m_file> -compare C and M implementations
 //   stats                     -show code metrics
 //   help                      -show command reference
 //   quit / exit               -exit the shell
@@ -170,6 +171,7 @@ fn show_help() {
     println("    where <name>           Find which file defines a function");
     println("    complexity [N]         Show N most complex functions");
     println("    diff                   Show changes between analyses");
+    println("    compare <c> <m>        Compare C and M implementations");
     println("    self                   Machine analyzes itself");
     println("");
     println("  Values: integers (42), strings (\"hello\"), booleans (true/false)");
@@ -857,6 +859,233 @@ fn cmd_self() {
     println(")");
     println("");
     println("  Machine knows itself.");
+}
+
+fn cmd_compare(args: string) {
+    let arg: string = str_trim(args);
+    if len(arg) == 0 {
+        println("  Usage: compare <c_file> <m_file>");
+        println("  Example: compare m/bootstrap/vm.c examples/machine_vm.m");
+        return;
+    }
+
+    // Split args into two file paths
+    var space_pos: i32 = 0;
+    var found_space: bool = false;
+    while space_pos < len(arg) {
+        if char_at(arg, space_pos) == 32 {
+            found_space = true;
+            space_pos = space_pos + len(arg);  // exit
+        } else {
+            space_pos = space_pos + 1;
+        }
+    }
+    if found_space { space_pos = space_pos - len(arg); }
+
+    if !found_space {
+        println("  Error: need two file paths. Example:");
+        println("    compare m/bootstrap/vm.c examples/machine_vm.m");
+        return;
+    }
+
+    let c_path: string = substr(arg, 0, space_pos);
+    let m_path: string = str_trim(substr(arg, space_pos + 1, len(arg) - space_pos - 1));
+
+    // Analyze C file first
+    println("  Analyzing C file...");
+    let r1: i32 = analyze_file(c_path);
+    if r1 < 0 {
+        print("  Error: could not read '");
+        print(c_path);
+        println("'");
+        return;
+    }
+    let c_funcs: i32 = ana_get_func_count();
+    let c_lines: i32 = ana_get_lines();
+    let c_globals: i32 = ana_get_global_count();
+
+    // Collect C function names + metrics for comparison
+    var c_names: i32 = array_new(0);
+    var c_fn_lines: i32 = array_new(0);
+    var c_fn_calls: i32 = array_new(0);
+    var ci: i32 = 0;
+    while ci < c_funcs {
+        array_push(c_names, sp_store(ana_func_name(ci)));
+        array_push(c_fn_lines, ana_func_lines(ci));
+        array_push(c_fn_calls, ana_func_call_count(ci));
+        ci = ci + 1;
+    }
+
+    // Analyze M file (auto-saves C as previous)
+    println("  Analyzing M file...");
+    let r2: i32 = analyze_file(m_path);
+    if r2 < 0 {
+        print("  Error: could not read '");
+        print(m_path);
+        println("'");
+        return;
+    }
+    let m_funcs: i32 = ana_get_func_count();
+    let m_lines: i32 = ana_get_lines();
+    let m_globals: i32 = ana_get_global_count();
+    ana_populate_vm();
+
+    // Header
+    println("");
+    println("  ╔══════════════════════════════════════════╗");
+    println("  ║  C vs M — Structural Comparison          ║");
+    println("  ╚══════════════════════════════════════════╝");
+    println("");
+
+    // File summaries
+    print("  C: ");
+    print(c_path);
+    print("  (");
+    print(int_to_str(c_lines));
+    print(" lines, ");
+    print(int_to_str(c_funcs));
+    print(" funcs, ");
+    print(int_to_str(c_globals));
+    println(" globals)");
+
+    print("  M: ");
+    print(m_path);
+    print("  (");
+    print(int_to_str(m_lines));
+    print(" lines, ");
+    print(int_to_str(m_funcs));
+    print(" funcs, ");
+    print(int_to_str(m_globals));
+    println(" globals)");
+    println("");
+
+    // Growth
+    print("  Lines: ");
+    if m_lines > c_lines {
+        print("+");
+        print(int_to_str(m_lines - c_lines));
+        print(" (");
+        print(int_to_str(m_lines * 100 / c_lines));
+        println("% of C)");
+    } else {
+        print(int_to_str(m_lines - c_lines));
+        print(" (");
+        print(int_to_str(m_lines * 100 / c_lines));
+        println("% of C)");
+    }
+
+    print("  Functions: ");
+    print(int_to_str(c_funcs));
+    print(" -> ");
+    print(int_to_str(m_funcs));
+    print(" (+");
+    print(int_to_str(m_funcs - c_funcs));
+    println(")");
+    println("");
+
+    // Shared function names (same name in both)
+    var shared_count: i32 = 0;
+    var ci2: i32 = 0;
+    println("  Shared functions (same name in C and M):");
+    while ci2 < c_funcs {
+        let cname: string = sp_get(array_get(c_names, ci2));
+        let m_idx: i32 = ana_find_func(cname);
+        if m_idx >= 0 {
+            shared_count = shared_count + 1;
+            let c_l: i32 = array_get(c_fn_lines, ci2);
+            let m_l: i32 = ana_func_lines(m_idx);
+            let delta: i32 = m_l - c_l;
+            print("    ");
+            print(cname);
+            print("  C:");
+            print(int_to_str(c_l));
+            print("L -> M:");
+            print(int_to_str(m_l));
+            print("L");
+            if delta > 0 {
+                print(" (+");
+                print(int_to_str(delta));
+                print(")");
+            } else if delta < 0 {
+                print(" (");
+                print(int_to_str(delta));
+                print(")");
+            } else {
+                print(" (same)");
+            }
+            println("");
+        }
+        ci2 = ci2 + 1;
+    }
+
+    if shared_count == 0 {
+        println("    (no shared function names)");
+    } else {
+        print("    ");
+        print(int_to_str(shared_count));
+        println(" shared functions");
+    }
+
+    // C-only functions
+    println("");
+    println("  C-only functions (not in M):");
+    var c_only: i32 = 0;
+    ci2 = 0;
+    while ci2 < c_funcs {
+        let cname: string = sp_get(array_get(c_names, ci2));
+        if ana_find_func(cname) < 0 {
+            c_only = c_only + 1;
+            print("    ");
+            print(cname);
+            print("  ");
+            print(int_to_str(array_get(c_fn_lines, ci2)));
+            println("L");
+        }
+        ci2 = ci2 + 1;
+    }
+    if c_only == 0 { println("    (none)"); }
+
+    // M-only functions
+    println("");
+    print("  M-only functions (");
+    print(int_to_str(m_funcs - shared_count));
+    println(" new):");
+    var m_only_count: i32 = 0;
+    var mi: i32 = 0;
+    while mi < m_funcs {
+        let mname: string = ana_func_name(mi);
+        // Check if in C
+        var in_c: bool = false;
+        var ck: i32 = 0;
+        while ck < c_funcs {
+            if str_eq(sp_get(array_get(c_names, ck)), mname) { in_c = true; }
+            ck = ck + 1;
+        }
+        if !in_c {
+            m_only_count = m_only_count + 1;
+            if m_only_count <= 15 {
+                print("    ");
+                print(mname);
+                print("  ");
+                print(int_to_str(ana_func_lines(mi)));
+                println("L");
+            }
+        }
+        mi = mi + 1;
+    }
+    if m_only_count > 15 {
+        print("    ... and ");
+        print(int_to_str(m_only_count - 15));
+        println(" more");
+    }
+
+    // Store comparison results
+    let tick: i32 = vm_get_tick();
+    env_bind("_compare_c", val_str(c_path), tick, "compare");
+    env_bind("_compare_m", val_str(m_path), tick, "compare");
+    env_bind("_compare_shared", val_i32(shared_count), tick, "compare");
+
+    println("");
 }
 
 fn cmd_complexity(args: string) {
@@ -1577,6 +1806,8 @@ fn main() -> i32 {
             else { cmd_complexity(""); }
         } else if str_eq(line, "diff") {
             cmd_diff();
+        } else if str_starts_with(line, "compare ") {
+            cmd_compare(substr(line, 8, len(line) - 8));
         } else if str_eq(line, "self") {
             cmd_self();
         } else if str_starts_with(line, "bind ") {
