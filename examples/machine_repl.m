@@ -178,6 +178,7 @@ fn show_help() {
     println("    unused                 Find functions with no callers");
     println("    hotspots [N]           Show N most-called functions");
     println("    health                 Code health report with score");
+    println("    summary                Narrative summary of analyzed code");
     println("    focus <name>           Deep analysis of a single function");
     println("    suggest                Improvement suggestions");
     println("    coupling [N]           Show N most coupled function pairs");
@@ -1552,6 +1553,148 @@ fn cmd_health() {
     println("");
 }
 
+fn cmd_summary() {
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    let nfuncs: i32 = ana_get_func_count();
+    let nlines: i32 = ana_get_lines();
+    let nglobals: i32 = ana_get_global_count();
+
+    println("");
+    println("  Summary");
+    println("  ══════════════════════════════════════");
+    print("  ");
+    println(ana_get_file());
+    println("");
+
+    // Scale description
+    print("  Scale: ");
+    if nfuncs > 200 { print("large system"); }
+    else if nfuncs > 50 { print("medium system"); }
+    else if nfuncs > 20 { print("small system"); }
+    else { print("module"); }
+    print(" (");
+    print(int_to_str(nfuncs));
+    print(" functions, ");
+    print(int_to_str(nlines));
+    print(" lines, ");
+    print(int_to_str(nglobals));
+    println(" globals)");
+
+    // Architecture: count roles
+    var n_const: i32 = 0;
+    var n_util: i32 = 0;
+    var n_core: i32 = 0;
+    var n_iface: i32 = 0;
+    var n_test: i32 = 0;
+    var i: i32 = 0;
+    while i < nfuncs {
+        let role: i32 = ana_func_role(i);
+        if role == 1 { n_const = n_const + 1; }
+        else if role == 2 { n_util = n_util + 1; }
+        else if role == 3 { n_core = n_core + 1; }
+        else if role == 4 { n_iface = n_iface + 1; }
+        else if role == 5 { n_test = n_test + 1; }
+        i = i + 1;
+    }
+
+    println("");
+    println("  Architecture:");
+    print("    ");
+    print(int_to_str(n_const));
+    print(" constants, ");
+    print(int_to_str(n_util));
+    print(" utilities, ");
+    print(int_to_str(n_core));
+    print(" core, ");
+    print(int_to_str(n_iface));
+    print(" interfaces, ");
+    print(int_to_str(n_test));
+    println(" tests");
+
+    // Identify the "spine" — top 3 core functions by lines
+    println("");
+    println("  Spine (largest core functions):");
+    var spine_shown: i32 = 0;
+    // Simple selection: find top 3 core functions by lines
+    var used: i32 = array_new(0);
+    i = 0;
+    while i < nfuncs {
+        array_push(used, 0);
+        i = i + 1;
+    }
+
+    while spine_shown < 3 {
+        var best: i32 = 0 - 1;
+        var best_lines: i32 = 0;
+        i = 0;
+        while i < nfuncs {
+            if array_get(used, i) == 0 && ana_func_role(i) == 3 {
+                if ana_func_lines(i) > best_lines {
+                    best_lines = ana_func_lines(i);
+                    best = i;
+                }
+            }
+            i = i + 1;
+        }
+        if best < 0 { spine_shown = 3; }  // no more core funcs
+        else {
+            array_set(used, best, 1);
+            print("    ");
+            print(ana_func_name(best));
+            print(" (");
+            print(int_to_str(best_lines));
+            print("L, ");
+            print(int_to_str(ana_func_call_count(best)));
+            print(" calls, risk:");
+            print(int_to_str(ana_func_risk(best)));
+            println(")");
+            spine_shown = spine_shown + 1;
+        }
+    }
+
+    // Health summary
+    let score: i32 = ana_health_score();
+    let conf: i32 = ana_health_conf();
+    println("");
+    print("  Health: ~");
+    print(int_to_str(score));
+    print("/100 (conf:");
+    print(int_to_str(conf));
+    print("%) — ");
+    if score >= 80 { println("well-structured"); }
+    else if score >= 65 { println("good with minor issues"); }
+    else if score >= 50 { println("acceptable, some concerns"); }
+    else { println("needs attention"); }
+
+    // Key findings
+    let dead: i32 = ana_dead_code();
+    let ndead: i32 = array_len(dead);
+    let nsug: i32 = ana_suggest();
+
+    println("");
+    println("  Key findings:");
+    print("    ");
+    print(int_to_str(ndead));
+    println(" potentially unused functions");
+    print("    ");
+    print(int_to_str(nsug));
+    println(" improvement suggestions (use 'suggest' for details)");
+
+    // Dependencies
+    let nuses: i32 = ana_get_use_count();
+    if nuses > 0 {
+        print("    ");
+        print(int_to_str(nuses));
+        println(" external dependencies (use 'deps' for details)");
+    }
+
+    println("");
+}
+
 fn cmd_focus(args: string) {
     let name: string = str_trim(args);
     if len(name) == 0 {
@@ -2340,6 +2483,8 @@ fn main() -> i32 {
             else { cmd_hotspots(""); }
         } else if str_eq(line, "health") {
             cmd_health();
+        } else if str_eq(line, "summary") {
+            cmd_summary();
         } else if str_starts_with(line, "focus ") {
             cmd_focus(substr(line, 6, len(line) - 6));
         } else if str_eq(line, "suggest") {

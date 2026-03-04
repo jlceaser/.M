@@ -51,6 +51,7 @@ fn ana_init() {
     ana_file = "";
     ana_source = "";
     ana_src_lines = 0;
+    ana_cc_valid = false;
 }
 
 // ── Tokenizer (minimal, for structure extraction) ────
@@ -815,6 +816,10 @@ fn analyze_file(path: string) -> i32 {
         ana_tokenize(ana_source);
         ana_extract_structure();
     }
+
+    // Build caller count cache for fast intelligence queries
+    ana_cc_valid = false;
+    ana_build_caller_cache();
     return 0;
 }
 
@@ -1161,8 +1166,45 @@ fn ana_diff_call_delta(func_name: string) -> i32 {
 // Machine doesn't just read code — it forms opinions.
 // Caller analysis, dead code detection, hotspot identification.
 
+// Caller count cache — precomputed for O(n) access instead of O(n²)
+var ana_cc_cache: i32 = 0;     // array: caller count per function index
+var ana_cc_valid: bool = false; // true when cache matches current analysis
+
+fn ana_build_caller_cache() {
+    ana_cc_cache = array_new(0);
+    var i: i32 = 0;
+    // Initialize all counts to 0
+    while i < ana_fn_count {
+        array_push(ana_cc_cache, 0);
+        i = i + 1;
+    }
+    // For each function, look at what it calls and increment callee's count
+    i = 0;
+    while i < ana_fn_count {
+        let ncalls: i32 = ana_func_call_count(i);
+        var j: i32 = 0;
+        while j < ncalls {
+            let callee_name: string = ana_func_call_name(i, j);
+            let callee_idx: i32 = ana_find_func(callee_name);
+            if callee_idx >= 0 {
+                array_set(ana_cc_cache, callee_idx, array_get(ana_cc_cache, callee_idx) + 1);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    ana_cc_valid = true;
+}
+
 // Count how many functions call a given function (fan-in).
+// Uses cache when available for O(1) lookup.
 fn ana_caller_count(func_name: string) -> i32 {
+    if ana_cc_valid {
+        let idx: i32 = ana_find_func(func_name);
+        if idx >= 0 { return array_get(ana_cc_cache, idx); }
+        return 0;
+    }
+    // Fallback: linear scan (only if cache not built)
     var count: i32 = 0;
     var i: i32 = 0;
     while i < ana_fn_count {
