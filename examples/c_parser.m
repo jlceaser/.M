@@ -1795,10 +1795,20 @@ fn cp_gen_m_expr(node: i32) -> string {
 
     if k == CNK_EXPR_INT() { return cnn(node); }
     if k == CNK_EXPR_CHAR() {
-        // char literal: 'x' → char_at("x", 0) or just the int value
         let cv: string = cnn(node);
         if len(cv) == 1 {
             return str_concat(int_to_str(char_at(cv, 0)), str_concat(" /* '", str_concat(cv, "' */")));
+        }
+        // Escape sequences: \n=10, \t=9, \r=13, \\=92, \'=39, \"=34, \0=0
+        if len(cv) == 2 && char_at(cv, 0) == 92 {
+            let esc: i32 = char_at(cv, 1);
+            if esc == 110 { return str_concat("10 /* '", str_concat(cv, "' */")); }
+            if esc == 116 { return str_concat("9 /* '", str_concat(cv, "' */")); }
+            if esc == 114 { return str_concat("13 /* '", str_concat(cv, "' */")); }
+            if esc == 92 { return str_concat("92 /* '", str_concat(cv, "' */")); }
+            if esc == 48 { return str_concat("0 /* '", str_concat(cv, "' */")); }
+            if esc == 39 { return str_concat("39 /* '", str_concat(cv, "' */")); }
+            if esc == 34 { return str_concat("34 /* '", str_concat(cv, "' */")); }
         }
         return str_concat("0 /* '", str_concat(cv, "' */"));
     }
@@ -2171,6 +2181,17 @@ fn cp_print_m_stmt(node: i32, indent: string) -> i32 {
 
     if k == CNK_STMT_EXPR() {
         if cnd1(node) < 0 { return 0; }
+        // Expand ternary in assignment: x = cond ? a : b → if cond { x=a; } else { x=b; }
+        if cnk(cnd1(node)) == CNK_EXPR_ASSIGN() && cnd2(cnd1(node)) >= 0 && cnk(cnd2(cnd1(node))) == CNK_EXPR_TERNARY() {
+            let lhs: string = cp_gen_m_expr(cnd1(cnd1(node)));
+            let tern: i32 = cnd2(cnd1(node));
+            println(str_concat(indent, str_concat("if ", str_concat(cp_gen_m_expr(cnd1(tern)), " {"))));
+            println(str_concat(indent, str_concat("    ", str_concat(lhs, str_concat(" = ", str_concat(cp_gen_m_expr(cnd2(tern)), ";"))))));
+            println(str_concat(indent, "} else {"));
+            println(str_concat(indent, str_concat("    ", str_concat(lhs, str_concat(" = ", str_concat(cp_gen_m_expr(cnd3(tern)), ";"))))));
+            println(str_concat(indent, "}"));
+            return 0;
+        }
         println(str_concat(indent, str_concat(cp_gen_m_expr(cnd1(node)), ";")));
         return 0;
     }
@@ -2179,6 +2200,23 @@ fn cp_print_m_stmt(node: i32, indent: string) -> i32 {
         let vname: string = cnn(node);
         let vtype: string = cp_c_type_to_m(cnt(node));
         if cnd1(node) >= 0 {
+            // Expand ternary in var init: var x = cond ? a : b → var x=0; if cond { x=a; } else { x=b; }
+            if cnk(cnd1(node)) == CNK_EXPR_TERNARY() {
+                let tern: i32 = cnd1(node);
+                if str_eq(vtype, "string") {
+                    println(str_concat(indent, str_concat("var ", str_concat(vname, ": string = \"\";"))));
+                } else if str_eq(vtype, "bool") {
+                    println(str_concat(indent, str_concat("var ", str_concat(vname, ": bool = false;"))));
+                } else {
+                    println(str_concat(indent, str_concat("var ", str_concat(vname, ": i32 = 0;"))));
+                }
+                println(str_concat(indent, str_concat("if ", str_concat(cp_gen_m_expr(cnd1(tern)), " {"))));
+                println(str_concat(indent, str_concat("    ", str_concat(vname, str_concat(" = ", str_concat(cp_gen_m_expr(cnd2(tern)), ";"))))));
+                println(str_concat(indent, "} else {"));
+                println(str_concat(indent, str_concat("    ", str_concat(vname, str_concat(" = ", str_concat(cp_gen_m_expr(cnd3(tern)), ";"))))));
+                println(str_concat(indent, "}"));
+                return 0;
+            }
             println(str_concat(indent, str_concat("var ", str_concat(vname, str_concat(": ", str_concat(vtype, str_concat(" = ", str_concat(cp_gen_m_expr(cnd1(node)), ";"))))))));
         } else if str_eq(vtype, "string") {
             println(str_concat(indent, str_concat("var ", str_concat(vname, ": string = \"\";"))));
