@@ -85,9 +85,9 @@ A reasoning engine built on Machine VM primitives: temporal memory, uncertainty,
 | Machine VM | **working** | 89/89 |
 | Machine assembler | **working** | 27/27 |
 | Machine REPL | **working** | Interactive shell + expression eval |
-| Code analyzer | **working** | 64/64 |
+| Code analyzer | **working** | 112/112 |
 
-**Total: 243 tests passing across 4 test suites.**
+**Total: 291 tests passing across 4 test suites.**
 
 ## Phase 3: Machine Reads Code
 
@@ -133,6 +133,37 @@ Cross-file dependency resolution:
 - `ana_who_defines("vm_exec")` → `"examples/machine_vm.m"`
 - `ana_external_calls()` identifies cross-file function calls
 
+Diff/change detection:
+```
+machine> analyze examples/machine_vm.m
+machine> analyze examples/machine_asm.m
+machine> diff
+  Diff: machine_vm.m -> machine_asm.m
+  Lines: 1168 -> 829 (-339)
+  Functions: 95 -> 38 (-57)
+  + New (38): asm_trim, asm_line, asm_run ...
+  - Removed (95): OP_NOP, vm_exec, env_bind ...
+```
+
+C file analysis — Machine reads C source files too:
+```
+machine> analyze m/bootstrap/vm.c
+  Analyzed: m/bootstrap/vm.c
+  Lines: 840, Functions: 21, Dependencies: 5
+machine> compare m/bootstrap/vm.c examples/machine_vm.m
+  C: vm.c (840 lines, 21 funcs)  ->  M: machine_vm.m (1168 lines, 95 funcs)
+  Shared: vm_init (C:6L -> M:32L), vm_run (C:23L -> M:1L)
+  C-only: 19 functions  |  M-only: 93 new functions
+```
+
+Complexity scoring with uncertainty:
+```
+machine> complexity 3
+  1. vm_exec   ~95 (conf:75%)     411L  72 calls
+  2. vm_deserialize  ~90 (conf:75%)  132L  21 calls
+  3. vm_serialize  ~49 (conf:90%)   42L  14 calls
+```
+
 ## Self-Hosting Proof
 
 ```
@@ -168,7 +199,7 @@ gcc -O2 -o mc.exe m/generated/self_codegen.c
 ./mc.exe examples/self_codegen.m           # M compiler (63 tests)
 ./mc.exe examples/machine_vm_test.m        # Machine VM (89 tests)
 ./mc.exe examples/machine_asm.m            # Assembler (27 tests)
-./mc.exe examples/machine_analyze_test.m   # Analyzer (64 tests)
+./mc.exe examples/machine_analyze_test.m   # Analyzer (112 tests)
 
 # Launch interactive REPL
 ./mc.exe examples/self_codegen.m examples/machine_repl.m
@@ -211,8 +242,8 @@ examples/
   machine_vm_test.m     VM test suite (89/89 tests)
   machine_asm.m         Text assembler for VM (27/27 tests)
   machine_repl.m        Interactive temporal computing shell
-  machine_analyze.m     M source code analyzer (Phase C)
-  machine_analyze_test.m  Analyzer tests (64/64)
+  machine_analyze.m     M + C source code analyzer (Phase C)
+  machine_analyze_test.m  Analyzer tests (112/112)
   c_lexer.m             C tokenizer written in M (13/13 tests)
   c_parser.m            C parser + translator written in M (28/28 tests)
   self_interp.m         M interpreter written in M (27/27 tests)
@@ -232,9 +263,12 @@ include/              Headers
 - [x] Machine VM — temporal computation engine (89/89 tests)
 - [x] Machine assembler — text-to-bytecode (27/27 tests)
 - [x] Machine REPL — interactive temporal computing shell
-- [x] Code analyzer — M reads M source files (64/64 tests)
-- [ ] Cross-file analysis in REPL
-- [ ] C file analysis via temporal VM
+- [x] Code analyzer — M + C file analysis (112/112 tests)
+- [x] Cross-file analysis in REPL (dependencies, where, project)
+- [x] C file analysis via temporal VM (C structure extraction)
+- [x] Diff/change detection (new/removed/changed functions)
+- [x] Complexity scoring with uncertainty
+- [x] C vs M structural comparison
 - [ ] Linux transition
 
 ## License
