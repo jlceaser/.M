@@ -536,12 +536,12 @@ fn c_count_structs() -> i32 {
     return count;
 }
 
-// ── Main: driver + tests ─────────────────────────────
+// ── Entry: driver + tests ─────────────────────────────
 
-fn main() -> i32 {
+fn c_lexer_main() -> i32 {
     // Driver mode: tokenize a C file
-    if argc() >= 2 {
-        let path: string = argv(1);
+    if argc() >= 1 {
+        let path: string = argv(0);
         let src: string = read_file(path);
         if len(src) == 0 {
             print("error: cannot read ");
@@ -775,4 +775,8 @@ fn main() -> i32 {
     }
 
     return 0;
+}
+
+fn main() -> i32 {
+    return c_lexer_main();
 }
