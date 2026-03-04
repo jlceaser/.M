@@ -15,6 +15,28 @@
 
 use "c_lexer.m";
 
+// ── String helpers (not VM built-ins) ───────────────
+
+// M bytecode compiler doesn't process escape sequences in strings.
+// Use these helpers for special characters.
+fn NL() -> string { return char_to_str(10); }
+fn QQ() -> string { return char_to_str(34); }  // double quote
+
+fn str_starts_with(s: string, prefix: string) -> bool {
+    if len(prefix) > len(s) { return false; }
+    return str_eq(substr(s, 0, len(prefix)), prefix);
+}
+
+fn str_contains(haystack: string, needle: string) -> bool {
+    if len(needle) > len(haystack) { return false; }
+    var i: i32 = 0;
+    while i <= len(haystack) - len(needle) {
+        if str_eq(substr(haystack, i, len(needle)), needle) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
 // ── C AST Node Kinds ────────────────────────────────
 
 fn CNK_PROGRAM() -> i32      { return 100; }
@@ -272,8 +294,8 @@ fn cp_parse_base_type() -> string {
 
     // Collect storage class
     while cp_is_storage_class(cp_peek_val()) {
-        if len(storage) > 0 { storage = cc(storage, " "); }
-        storage = cc(storage, cp_advance());
+        if len(storage) > 0 { storage = str_concat(storage, " "); }
+        storage = str_concat(storage, cp_advance());
     }
 
     // Collect qualifiers and type specifiers
@@ -282,23 +304,23 @@ fn cp_parse_base_type() -> string {
         let v: string = cp_peek_val();
 
         if cp_is_type_qualifier(v) {
-            if len(result) > 0 { result = cc(result, " "); }
-            result = cc(result, cp_advance());
+            if len(result) > 0 { result = str_concat(result, " "); }
+            result = str_concat(result, cp_advance());
         } else if cp_is_type_specifier(v) {
-            if len(result) > 0 { result = cc(result, " "); }
+            if len(result) > 0 { result = str_concat(result, " "); }
             // Handle struct/union/enum + name
             if str_eq(v, "struct") || str_eq(v, "union") || str_eq(v, "enum") {
-                result = cc(result, cp_advance());
+                result = str_concat(result, cp_advance());
                 if cp_peek() == CTK_IDENT() {
-                    result = cc(result, cc(" ", cp_advance()));
+                    result = str_concat(result, str_concat(" ", cp_advance()));
                 }
             } else {
-                result = cc(result, cp_advance());
+                result = str_concat(result, cp_advance());
             }
             got_type = true;
         } else if cp_peek() == CTK_IDENT() && cp_is_type_name(v) && !got_type {
-            if len(result) > 0 { result = cc(result, " "); }
-            result = cc(result, cp_advance());
+            if len(result) > 0 { result = str_concat(result, " "); }
+            result = str_concat(result, cp_advance());
             got_type = true;
         } else {
             // Not a type token, stop
@@ -308,27 +330,27 @@ fn cp_parse_base_type() -> string {
                 let next: i32 = cp_peek_at(1);
                 let next_v: string = cp_peek_val_at(1);
                 if str_eq(next_v, "*") || next == CTK_IDENT() {
-                    if len(result) > 0 { result = cc(result, " "); }
+                    if len(result) > 0 { result = str_concat(result, " "); }
                     let tn: string = cp_advance();
                     cp_add_type_name(tn);
-                    result = cc(result, tn);
+                    result = str_concat(result, tn);
                     got_type = true;
                 } else {
                     // Give up
                     if len(result) == 0 { result = "int"; }
-                    if len(storage) > 0 { return cc(storage, cc(" ", result)); }
+                    if len(storage) > 0 { return str_concat(storage, str_concat(" ", result)); }
                     return result;
                 }
             } else {
                 if len(result) == 0 { result = "int"; }
-                if len(storage) > 0 { return cc(storage, cc(" ", result)); }
+                if len(storage) > 0 { return str_concat(storage, str_concat(" ", result)); }
                 return result;
             }
         }
     }
 
     if len(result) == 0 { result = "int"; }
-    if len(storage) > 0 { return cc(storage, cc(" ", result)); }
+    if len(storage) > 0 { return str_concat(storage, str_concat(" ", result)); }
     return result;
 }
 
@@ -336,11 +358,11 @@ fn cp_parse_base_type() -> string {
 fn cp_parse_pointers() -> string {
     var ptrs: string = "";
     while str_eq(cp_peek_val(), "*") {
-        ptrs = cc(ptrs, "*");
+        ptrs = str_concat(ptrs, "*");
         cp_advance();
         // Collect const/volatile after *
         while cp_is_type_qualifier(cp_peek_val()) {
-            ptrs = cc(ptrs, cc(" ", cp_advance()));
+            ptrs = str_concat(ptrs, str_concat(" ", cp_advance()));
         }
     }
     return ptrs;
@@ -371,7 +393,7 @@ fn cp_parse_param() -> i32 {
     let base: string = cp_parse_base_type();
     let ptrs: string = cp_parse_pointers();
     var full_type: string = base;
-    if len(ptrs) > 0 { full_type = cc(base, cc(" ", ptrs)); }
+    if len(ptrs) > 0 { full_type = str_concat(base, str_concat(" ", ptrs)); }
 
     // Parse declarator name (might be absent in declarations)
     var name: string = "";
@@ -384,14 +406,14 @@ fn cp_parse_param() -> i32 {
         cp_advance();
         while !cp_at_end() && !str_eq(cp_peek_val(), "]") { cp_advance(); }
         cp_match_val("]");
-        full_type = cc(full_type, "[]");
+        full_type = str_concat(full_type, "[]");
     }
 
     // Handle function pointer: (*name)(params)
     // Already partially consumed, just skip
     if str_eq(cp_peek_val(), "(") {
         cp_skip_parens();
-        full_type = cc(full_type, "(*)()");
+        full_type = str_concat(full_type, "(*)()");
     }
 
     return cn_new(CNK_PARAM(), name, full_type, 0, 0, 0);
@@ -456,7 +478,7 @@ fn cp_parse_struct_fields() -> i32 {
 
                 let ptrs: string = cp_parse_pointers();
                 var full_type: string = base;
-                if len(ptrs) > 0 { full_type = cc(base, cc(" ", ptrs)); }
+                if len(ptrs) > 0 { full_type = str_concat(base, str_concat(" ", ptrs)); }
 
                 var name: string = "";
                 if cp_peek() == CTK_IDENT() { name = cp_advance(); }
@@ -473,17 +495,17 @@ fn cp_parse_struct_fields() -> i32 {
                     cp_advance();
                     var arr_size: string = "";
                     while !cp_at_end() && !str_eq(cp_peek_val(), "]") {
-                        arr_size = cc(arr_size, cp_advance());
+                        arr_size = str_concat(arr_size, cp_advance());
                     }
                     cp_expect_val("]");
-                    full_type = cc(full_type, cc("[", cc(arr_size, "]")));
+                    full_type = str_concat(full_type, str_concat("[", str_concat(arr_size, "]")));
                 }
 
                 // Bitfield: name : width
                 if str_eq(cp_peek_val(), ":") {
                     cp_advance();
                     if cp_peek() == CTK_INT_LIT() {
-                        full_type = cc(full_type, cc(":", cp_advance()));
+                        full_type = str_concat(full_type, str_concat(":", cp_advance()));
                     }
                 }
 
@@ -524,8 +546,8 @@ fn cp_parse_enum_consts() -> i32 {
                     if !done {
                         if str_eq(v, "(") { depth = depth + 1; }
                         if str_eq(v, ")") { depth = depth - 1; }
-                        if len(val) > 0 { val = cc(val, " "); }
-                        val = cc(val, cp_advance());
+                        if len(val) > 0 { val = str_concat(val, " "); }
+                        val = str_concat(val, cp_advance());
                     }
                 }
             }
@@ -617,7 +639,7 @@ fn cp_parse_typedef() -> i32 {
             if cp_peek() == CTK_IDENT() { alias = cp_advance(); }
             cp_match_val(";");
             if len(alias) > 0 { cp_add_type_name(alias); }
-            return cn_new(CNK_TYPEDEF(), alias, cc(keyword, cc(" ", tag)), 0, 0, 0);
+            return cn_new(CNK_TYPEDEF(), alias, str_concat(keyword, str_concat(" ", tag)), 0, 0, 0);
         }
 
         if str_eq(cp_peek_val(), "{") {
@@ -638,7 +660,7 @@ fn cp_parse_typedef() -> i32 {
 
             // Create struct definition node
             let snode: i32 = cn_new(CNK_STRUCT_DEF(), tag, keyword, fstart, fcount, 0);
-            return cn_new(CNK_TYPEDEF(), alias2, cc(keyword, cc(" ", tag)), snode, 0, 0);
+            return cn_new(CNK_TYPEDEF(), alias2, str_concat(keyword, str_concat(" ", tag)), snode, 0, 0);
         }
         cp_skip_to_semi();
         return cn_new(CNK_TYPEDEF(), "", keyword, 0, 0, 0);
@@ -674,7 +696,7 @@ fn cp_parse_typedef() -> i32 {
     let base: string = cp_parse_base_type();
     let ptrs2: string = cp_parse_pointers();
     var orig_type: string = base;
-    if len(ptrs2) > 0 { orig_type = cc(base, cc(" ", ptrs2)); }
+    if len(ptrs2) > 0 { orig_type = str_concat(base, str_concat(" ", ptrs2)); }
 
     // Function pointer typedef: typedef int (*name)(int, int);
     if str_eq(cp_peek_val(), "(") && str_eq(cp_peek_val_at(1), "*") {
@@ -687,7 +709,7 @@ fn cp_parse_typedef() -> i32 {
         if str_eq(cp_peek_val(), "(") { cp_skip_parens(); }
         cp_match_val(";");
         if len(fp_name) > 0 { cp_add_type_name(fp_name); }
-        return cn_new(CNK_TYPEDEF(), fp_name, cc(orig_type, " (*)()"), 0, 0, 0);
+        return cn_new(CNK_TYPEDEF(), fp_name, str_concat(orig_type, " (*)()"), 0, 0, 0);
     }
 
     var alias3: string = "";
@@ -698,10 +720,10 @@ fn cp_parse_typedef() -> i32 {
         cp_advance();
         var arr_sz: string = "";
         while !cp_at_end() && !str_eq(cp_peek_val(), "]") {
-            arr_sz = cc(arr_sz, cp_advance());
+            arr_sz = str_concat(arr_sz, cp_advance());
         }
         cp_expect_val("]");
-        orig_type = cc(orig_type, cc("[", cc(arr_sz, "]")));
+        orig_type = str_concat(orig_type, str_concat("[", str_concat(arr_sz, "]")));
     }
 
     cp_match_val(";");
@@ -715,7 +737,7 @@ fn cp_parse_declaration() -> i32 {
     let base: string = cp_parse_base_type();
     let ptrs: string = cp_parse_pointers();
     var full_type: string = base;
-    if len(ptrs) > 0 { full_type = cc(base, cc(" ", ptrs)); }
+    if len(ptrs) > 0 { full_type = str_concat(base, str_concat(" ", ptrs)); }
 
     // Function pointer declaration: type (*name)(params) = ...;
     if str_eq(cp_peek_val(), "(") && str_eq(cp_peek_val_at(1), "*") {
@@ -762,10 +784,10 @@ fn cp_parse_declaration() -> i32 {
         cp_advance();
         var arr_sz2: string = "";
         while !cp_at_end() && !str_eq(cp_peek_val(), "]") {
-            arr_sz2 = cc(arr_sz2, cp_advance());
+            arr_sz2 = str_concat(arr_sz2, cp_advance());
         }
         cp_expect_val("]");
-        full_type = cc(full_type, cc("[", cc(arr_sz2, "]")));
+        full_type = str_concat(full_type, str_concat("[", str_concat(arr_sz2, "]")));
     }
 
     // Variable with initializer
@@ -1063,6 +1085,155 @@ fn cp_parse_file(path: string) -> i32 {
     return cp_parse(src);
 }
 
+// ── C → M Translation ───────────────────────────────
+
+// Map C type to M type
+fn cp_c_type_to_m(ct: string) -> string {
+    // Remove storage class prefixes
+    var t: string = ct;
+    if str_starts_with(t, "static ") { t = substr(t, 7, len(t) - 7); }
+    if str_starts_with(t, "extern ") { t = substr(t, 7, len(t) - 7); }
+    if str_starts_with(t, "inline ") { t = substr(t, 7, len(t) - 7); }
+
+    // Pointer types → string in M (simplified mapping)
+    if str_contains(t, "*") { return "string"; }
+
+    // Remove const/volatile
+    if str_starts_with(t, "const ") { t = substr(t, 6, len(t) - 6); }
+    if str_starts_with(t, "volatile ") { t = substr(t, 9, len(t) - 9); }
+
+    // Basic type mapping
+    if str_eq(t, "void") { return "i32"; }
+    if str_eq(t, "int") { return "i32"; }
+    if str_eq(t, "char") { return "i32"; }
+    if str_eq(t, "short") { return "i32"; }
+    if str_eq(t, "long") { return "i32"; }
+    if str_eq(t, "long long") { return "i32"; }
+    if str_eq(t, "unsigned") { return "i32"; }
+    if str_eq(t, "unsigned int") { return "i32"; }
+    if str_eq(t, "unsigned char") { return "i32"; }
+    if str_eq(t, "unsigned long") { return "i32"; }
+    if str_eq(t, "signed") { return "i32"; }
+    if str_eq(t, "float") { return "i32"; }
+    if str_eq(t, "double") { return "i32"; }
+    if str_eq(t, "size_t") { return "i32"; }
+    if str_eq(t, "bool") { return "bool"; }
+    if str_eq(t, "_Bool") { return "bool"; }
+
+    // Default: treat as i32
+    return "i32";
+}
+
+// Generate M function signature from C function node
+fn cp_gen_m_func_sig(node: i32) -> string {
+    let c_ret: string = cnt(node);
+    let name: string = cnn(node);
+    let pstart: i32 = cnd1(node);
+    let pcount: i32 = cnd2(node);
+    let m_ret: string = cp_c_type_to_m(c_ret);
+
+    var result: string = str_concat("fn ", name);
+    result = str_concat(result, "(");
+
+    var i: i32 = 0;
+    while i < pcount {
+        if i > 0 { result = str_concat(result, ", "); }
+        let p: i32 = cn_child(pstart, i);
+        let pname: string = cnn(p);
+        let ptype: string = cnt(p);
+
+        // Skip void params and variadic
+        if str_eq(ptype, "void") || str_eq(ptype, "...") {
+            i = i + 1;
+        }
+        if !str_eq(ptype, "void") && !str_eq(ptype, "...") {
+            let m_ptype: string = cp_c_type_to_m(ptype);
+            var param_name: string = pname;
+            if len(param_name) == 0 {
+                param_name = str_concat("arg", int_to_str(i));
+            }
+            result = str_concat(result, str_concat(param_name, str_concat(": ", m_ptype)));
+            i = i + 1;
+        }
+    }
+
+    result = str_concat(result, str_concat(") -> ", m_ret));
+    return result;
+}
+
+// Generate M function stub (signature + placeholder body)
+fn cp_gen_m_func(node: i32) -> string {
+    let sig: string = cp_gen_m_func_sig(node);
+    let m_ret: string = cp_c_type_to_m(cnt(node));
+    let nl: string = NL();
+
+    var body: string = "";
+    if str_eq(m_ret, "string") {
+        body = str_concat("    return ", str_concat(QQ(), str_concat(QQ(), str_concat(";", nl))));
+    } else if str_eq(m_ret, "bool") {
+        body = str_concat("    return false;", nl);
+    } else {
+        body = str_concat("    return 0;", nl);
+    }
+
+    return str_concat(sig, str_concat(str_concat(" {", nl), str_concat(body, str_concat("}", nl))));
+}
+
+// Generate M translation of entire C program
+fn cp_gen_m_translation(prog: i32) -> string {
+    let total: i32 = cnd2(prog);
+    let start: i32 = cnd1(prog);
+    let nl: string = NL();
+    var result: string = str_concat("// Auto-translated from C by Machine", nl);
+    result = str_concat(result, str_concat("// Phase 2: M reads C, writes M", str_concat(nl, nl)));
+
+    // First pass: struct comments
+    var i: i32 = 0;
+    while i < total {
+        let node: i32 = cn_child(start, i);
+        if cnk(node) == CNK_STRUCT_DEF() {
+            let sname: string = cnn(node);
+            let fstart: i32 = cnd1(node);
+            let fcount: i32 = cnd2(node);
+            result = str_concat(result, str_concat("// struct ", str_concat(sname, str_concat(" {", nl))));
+            var j: i32 = 0;
+            while j < fcount {
+                let f: i32 = cn_child(fstart, j);
+                result = str_concat(result, str_concat("//     ", str_concat(cnt(f), str_concat(" ", str_concat(cnn(f), str_concat(";", nl))))));
+                j = j + 1;
+            }
+            result = str_concat(result, str_concat("// }", str_concat(nl, nl)));
+        }
+        i = i + 1;
+    }
+
+    // Second pass: function declarations
+    i = 0;
+    while i < total {
+        let node2: i32 = cn_child(start, i);
+        if cnk(node2) == CNK_FUNC_DECL() {
+            let sig: string = cp_gen_m_func_sig(node2);
+            result = str_concat(result, str_concat(sig, str_concat(";", nl)));
+        }
+        i = i + 1;
+    }
+    if cp_count_func_decls(prog) > 0 {
+        result = str_concat(result, nl);
+    }
+
+    // Third pass: function definitions
+    i = 0;
+    while i < total {
+        let node3: i32 = cn_child(start, i);
+        if cnk(node3) == CNK_FUNC_DEF() {
+            result = str_concat(result, str_concat(cp_gen_m_func(node3), nl));
+        }
+        i = i + 1;
+    }
+
+    return result;
+}
+
 // ── Tests ───────────────────────────────────────────
 
 fn test_c_parser() -> i32 {
@@ -1352,9 +1523,63 @@ fn test_c_parser() -> i32 {
     print(int_to_str(tests_run));
     println(" tests passed");
 
+    // Test 17: C type to M type mapping
+    tests_run = tests_run + 1;
+    if str_eq(cp_c_type_to_m("int"), "i32") &&
+       str_eq(cp_c_type_to_m("const char *"), "string") &&
+       str_eq(cp_c_type_to_m("void"), "i32") &&
+       str_eq(cp_c_type_to_m("static int"), "i32") &&
+       str_eq(cp_c_type_to_m("char **"), "string") {
+        tests_passed = tests_passed + 1;
+        println("  OK  type mapping");
+    } else { println("  FAIL type mapping"); }
+
+    // Test 18: function signature translation
+    tests_run = tests_run + 1;
+    let t18: i32 = cp_parse("int add(int a, int b) { return a + b; }");
+    let f18: i32 = cn_child(cnd1(t18), 0);
+    let sig18: string = cp_gen_m_func_sig(f18);
+    if str_eq(sig18, "fn add(a: i32, b: i32) -> i32") {
+        tests_passed = tests_passed + 1;
+        println("  OK  function signature translation");
+    } else {
+        print("  FAIL function signature translation: ");
+        println(sig18);
+    }
+
+    // Test 19: full program translation
+    tests_run = tests_run + 1;
+    let t19: i32 = cp_parse("int main() { return 0; }");
+    let m19: string = cp_gen_m_translation(t19);
+    if str_contains(m19, "fn main() -> i32") && str_contains(m19, "return 0;") {
+        tests_passed = tests_passed + 1;
+        println("  OK  program translation");
+    } else {
+        println("  FAIL program translation");
+    }
+
+    // Test 20: real file translation (mc.c)
+    tests_run = tests_run + 1;
+    let t20: i32 = cp_parse_file("m/bootstrap/mc.c");
+    if t20 >= 0 {
+        let m20: string = cp_gen_m_translation(t20);
+        if str_contains(m20, "fn read_file(") && str_contains(m20, "fn main(") {
+            tests_passed = tests_passed + 1;
+            println("  OK  mc.c translation");
+        } else {
+            println("  FAIL mc.c translation (missing functions)");
+        }
+    } else { println("  FAIL mc.c translation (cannot read)"); }
+
+    println("");
+    print(int_to_str(tests_passed));
+    print("/");
+    print(int_to_str(tests_run));
+    println(" tests passed");
+
     if tests_passed == tests_run {
         println("");
-        println("M reads C structure. Phase 2 deepens.");
+        println("M reads C, writes M. Cross-language translation works.");
     }
 
     return tests_passed == tests_run;
@@ -1363,6 +1588,16 @@ fn test_c_parser() -> i32 {
 // ── Driver ──────────────────────────────────────────
 
 fn main() -> i32 {
+    if argc() >= 2 && str_eq(argv(0), "--translate") {
+        // Translation mode: --translate <file.c>
+        let path: string = argv(1);
+        let prog: i32 = cp_parse_file(path);
+        if prog >= 0 {
+            print(cp_gen_m_translation(prog));
+        }
+        return 0;
+    }
+
     if argc() >= 1 {
         // File analysis mode
         let path: string = argv(0);
