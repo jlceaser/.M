@@ -13,6 +13,33 @@ fn is_alpha(c: i32) -> bool {
 fn is_alnum(c: i32) -> bool { return is_alpha(c) || is_digit(c); }
 fn is_space(c: i32) -> bool { return c == 32 || c == 10 || c == 13 || c == 9; }
 
+// Process escape sequences in a raw string token value
+// Converts \n→newline, \t→tab, \r→CR, \\→backslash, \"→quote, \0→null
+fn process_escapes(s: string) -> string {
+    var result: string = "";
+    var i: i32 = 0;
+    while i < len(s) {
+        if char_at(s, i) == 92 && i + 1 < len(s) {
+            let next: i32 = char_at(s, i + 1);
+            if next == 110 { result = str_concat(result, char_to_str(10)); }
+            else if next == 116 { result = str_concat(result, char_to_str(9)); }
+            else if next == 114 { result = str_concat(result, char_to_str(13)); }
+            else if next == 92 { result = str_concat(result, char_to_str(92)); }
+            else if next == 34 { result = str_concat(result, char_to_str(34)); }
+            else if next == 48 { result = str_concat(result, char_to_str(0)); }
+            else {
+                result = str_concat(result, char_to_str(92));
+                result = str_concat(result, char_to_str(next));
+            }
+            i = i + 2;
+        } else {
+            result = str_concat(result, char_to_str(char_at(s, i)));
+            i = i + 1;
+        }
+    }
+    return result;
+}
+
 // ── Token types ──────────────────────────────────────
 
 fn TK_EOF() -> i32    { return 0; }
@@ -790,7 +817,7 @@ fn gen_expr(idx: i32) -> i32 {
     }
 
     if kind == NK_STR_LIT() {
-        let ci: i32 = add_str_const(nn(idx));
+        let ci: i32 = add_str_const(process_escapes(nn(idx)));
         emit_op_u16(OP_CONST_STRING(), ci);
         return 0;
     }
