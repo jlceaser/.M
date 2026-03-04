@@ -1310,6 +1310,106 @@ fn ana_populate_intelligence() {
     env_bind("_health", val_approx(health, conf), tick, "intelligence");
 }
 
+// ── Deep function analysis (focus) ─────────────────────────────────
+// Machine examines a single function in depth: role, risk, dependencies.
+
+// Classify function role:
+// 1 = constant (1 line, returns literal)
+// 2 = utility (small, many callers)
+// 3 = core (large, critical path)
+// 4 = interface (no callers — public API entry point)
+// 5 = test (name starts with test_)
+fn ana_func_role(idx: i32) -> i32 {
+    let name: string = ana_func_name(idx);
+    let lines: i32 = ana_func_lines(idx);
+    let callers: i32 = ana_caller_count(name);
+    let calls: i32 = ana_func_call_count(idx);
+
+    // Test function
+    if len(name) >= 5 && str_eq(substr(name, 0, 5), "test_") { return 5; }
+
+    // Constant function (1-2 lines, 0 calls out, often returns a value)
+    if lines <= 2 && calls == 0 { return 1; }
+
+    // Interface (no callers, not a constant — likely a public entry point)
+    if callers == 0 && lines > 2 { return 4; }
+
+    // Core (large function, many calls out or many callers)
+    if lines > 50 || calls > 15 || callers > 5 { return 3; }
+
+    // Utility (everything else — small, called by others)
+    return 2;
+}
+
+fn ana_role_name(role: i32) -> string {
+    if role == 1 { return "constant"; }
+    if role == 2 { return "utility"; }
+    if role == 3 { return "core"; }
+    if role == 4 { return "interface"; }
+    if role == 5 { return "test"; }
+    return "unknown";
+}
+
+// Risk score (0-100): how risky is it to modify this function?
+// High risk = many callers + high complexity + central position
+fn ana_func_risk(idx: i32) -> i32 {
+    let name: string = ana_func_name(idx);
+    let lines: i32 = ana_func_lines(idx);
+    let callers: i32 = ana_caller_count(name);
+    let calls: i32 = ana_func_call_count(idx);
+
+    // Size risk (max 30)
+    var size_risk: i32 = 0;
+    if lines > 200 { size_risk = 30; }
+    else if lines > 100 { size_risk = 20; }
+    else if lines > 50 { size_risk = 10; }
+    else if lines > 20 { size_risk = 5; }
+
+    // Fan-in risk (max 40) — more callers = more impact from changes
+    var fanin_risk: i32 = callers * 5;
+    if fanin_risk > 40 { fanin_risk = 40; }
+
+    // Fan-out risk (max 30) — more dependencies = harder to understand
+    var fanout_risk: i32 = calls * 2;
+    if fanout_risk > 30 { fanout_risk = 30; }
+
+    return size_risk + fanin_risk + fanout_risk;
+}
+
+// Get who calls this function (returns array of function indices)
+fn ana_who_calls(func_name: string) -> i32 {
+    var result: i32 = array_new(0);
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        let ncalls: i32 = ana_func_call_count(i);
+        var j: i32 = 0;
+        var found: bool = false;
+        while j < ncalls {
+            if str_eq(ana_func_call_name(i, j), func_name) {
+                found = true;
+                j = ncalls;  // break
+            }
+            j = j + 1;
+        }
+        if found { array_push(result, i); }
+        i = i + 1;
+    }
+    return result;
+}
+
+// Populate VM with focus data for a specific function
+fn ana_populate_focus(idx: i32) {
+    let tick: i32 = vm_get_tick();
+    let name: string = ana_func_name(idx);
+
+    let prefix: string = str_concat("focus.", name);
+    env_bind(str_concat(prefix, ".role"), val_i32(ana_func_role(idx)), tick, "focus");
+    env_bind(str_concat(prefix, ".risk"), val_i32(ana_func_risk(idx)), tick, "focus");
+    env_bind(str_concat(prefix, ".callers"), val_i32(ana_caller_count(name)), tick, "focus");
+    env_bind(str_concat(prefix, ".lines"), val_i32(ana_func_lines(idx)), tick, "focus");
+    env_bind(str_concat(prefix, ".calls"), val_i32(ana_func_call_count(idx)), tick, "focus");
+}
+
 // ── Code suggestions (Machine reasons about code) ──────────────────
 // Machine forms opinions and suggests improvements.
 // Each suggestion has: type, target (function name), reason, priority (1-3).

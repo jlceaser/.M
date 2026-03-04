@@ -614,6 +614,82 @@ fn test_diff_prev_lookup() {
 
 // ── Suggestion / coupling tests ──────────────────────
 
+// ── Focus / role / risk tests ─────────────────────────
+
+fn test_func_role() {
+    println("-- test_func_role --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+
+    // vm_exec is core (large, many calls)
+    let exec_idx: i32 = ana_find_func("vm_exec");
+    assert_true("vm_exec found", exec_idx >= 0);
+    assert_eq_i("vm_exec role is core", 3, ana_func_role(exec_idx));
+
+    // OP_NOP is constant (1-2 lines, no calls out)
+    let nop_idx: i32 = ana_find_func("OP_NOP");
+    assert_true("OP_NOP found", nop_idx >= 0);
+    assert_eq_i("OP_NOP role is constant", 1, ana_func_role(nop_idx));
+}
+
+fn test_func_risk() {
+    println("-- test_func_risk --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+
+    // vm_exec should be high risk (large, many calls)
+    let exec_idx: i32 = ana_find_func("vm_exec");
+    let risk: i32 = ana_func_risk(exec_idx);
+    assert_true("vm_exec risk > 50", risk > 50);
+
+    // OP_NOP should be low risk (tiny, few callers)
+    let nop_idx: i32 = ana_find_func("OP_NOP");
+    let nop_risk: i32 = ana_func_risk(nop_idx);
+    assert_true("OP_NOP risk < 30", nop_risk < 30);
+}
+
+fn test_who_calls() {
+    println("-- test_who_calls --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+
+    // env_find is called by multiple functions
+    let callers: i32 = ana_who_calls("env_find");
+    assert_true("env_find has callers", array_len(callers) > 0);
+
+    // Each caller index should be valid
+    if array_len(callers) > 0 {
+        let first: i32 = array_get(callers, 0);
+        assert_true("caller idx valid", first >= 0 && first < ana_get_func_count());
+    }
+}
+
+fn test_focus_vm_bindings() {
+    println("-- test_focus_vm_bindings --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+
+    let exec_idx: i32 = ana_find_func("vm_exec");
+    ana_populate_focus(exec_idx);
+
+    let role_val: i32 = val_get_int(env_load("focus.vm_exec.role"));
+    assert_eq_i("focus.vm_exec.role = core(3)", 3, role_val);
+
+    let risk_val: i32 = val_get_int(env_load("focus.vm_exec.risk"));
+    assert_true("focus.vm_exec.risk > 0", risk_val > 0);
+}
+
+fn test_role_name() {
+    println("-- test_role_name --");
+    assert_eq("role 1 = constant", "constant", ana_role_name(1));
+    assert_eq("role 2 = utility", "utility", ana_role_name(2));
+    assert_eq("role 3 = core", "core", ana_role_name(3));
+    assert_eq("role 4 = interface", "interface", ana_role_name(4));
+    assert_eq("role 5 = test", "test", ana_role_name(5));
+}
+
+// ── Suggestion / coupling tests ──────────────────────
+
 fn test_suggest_big_file() {
     println("-- test_suggest_big_file --");
     vm_init();
@@ -753,6 +829,13 @@ fn main() -> i32 {
     test_hotspots();
     test_health_score();
     test_intelligence_bindings();
+
+    // Focus / role / risk tests
+    test_func_role();
+    test_func_risk();
+    test_who_calls();
+    test_focus_vm_bindings();
+    test_role_name();
 
     // Suggestion / coupling tests
     test_suggest_big_file();

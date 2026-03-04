@@ -178,6 +178,7 @@ fn show_help() {
     println("    unused                 Find functions with no callers");
     println("    hotspots [N]           Show N most-called functions");
     println("    health                 Code health report with score");
+    println("    focus <name>           Deep analysis of a single function");
     println("    suggest                Improvement suggestions");
     println("    coupling [N]           Show N most coupled function pairs");
     println("    self                   Machine analyzes itself");
@@ -1551,6 +1552,140 @@ fn cmd_health() {
     println("");
 }
 
+fn cmd_focus(args: string) {
+    let name: string = str_trim(args);
+    if len(name) == 0 {
+        println("  Error: use 'focus <function_name>'");
+        return;
+    }
+
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    let idx: i32 = ana_find_func(name);
+    if idx < 0 {
+        print("  Function not found: ");
+        println(name);
+        return;
+    }
+
+    let lines: i32 = ana_func_lines(idx);
+    let params: i32 = ana_func_params(idx);
+    let calls: i32 = ana_func_call_count(idx);
+    let callers: i32 = ana_caller_count(name);
+    let role: i32 = ana_func_role(idx);
+    let risk: i32 = ana_func_risk(idx);
+
+    println("");
+    print("  Focus: ");
+    println(name);
+    println("  ══════════════════════════════════════");
+
+    // Identity
+    print("  Role: ");
+    println(ana_role_name(role));
+    print("  Lines: ");
+    print(int_to_str(lines));
+    print("  Params: ");
+    print(int_to_str(params));
+    print("  Calls: ");
+    print(int_to_str(calls));
+    print("  Callers: ");
+    println(int_to_str(callers));
+    println("");
+
+    // Risk assessment
+    print("  Risk: ~");
+    print(int_to_str(risk));
+    print("/100");
+    if risk >= 70 { println("  !! HIGH — changes here affect many parts"); }
+    else if risk >= 40 { println("  ! MEDIUM — test after changes"); }
+    else { println("  LOW — safe to modify"); }
+    println("");
+
+    // Who calls this function
+    let who: i32 = ana_who_calls(name);
+    let nwho: i32 = array_len(who);
+    if nwho > 0 {
+        print("  Called by (");
+        print(int_to_str(nwho));
+        println("):");
+        var i: i32 = 0;
+        var shown: i32 = 0;
+        while i < nwho && shown < 10 {
+            print("    <- ");
+            println(ana_func_name(array_get(who, i)));
+            shown = shown + 1;
+            i = i + 1;
+        }
+        if nwho > 10 {
+            print("    ... +");
+            print(int_to_str(nwho - 10));
+            println(" more");
+        }
+    } else {
+        println("  Called by: nobody (entry point or unused)");
+    }
+
+    // What this function calls
+    if calls > 0 {
+        print("  Calls (");
+        print(int_to_str(calls));
+        println("):");
+        var j: i32 = 0;
+        var shown2: i32 = 0;
+        while j < calls && shown2 < 10 {
+            print("    -> ");
+            println(ana_func_call_name(idx, j));
+            shown2 = shown2 + 1;
+            j = j + 1;
+        }
+        if calls > 10 {
+            print("    ... +");
+            print(int_to_str(calls - 10));
+            println(" more");
+        }
+    }
+    println("");
+
+    // Suggestions specific to this function
+    var has_sug: bool = false;
+    if lines > 100 {
+        has_sug = true;
+        print("  Suggestion: SPLIT — ");
+        print(int_to_str(lines));
+        println(" lines is too large for a single function");
+    }
+    if calls > 20 {
+        has_sug = true;
+        print("  Suggestion: EXTRACT — ");
+        print(int_to_str(calls));
+        println(" callees means high fan-out, extract helper functions");
+    }
+    if callers == 0 && role != 5 && role != 1 {
+        has_sug = true;
+        println("  Suggestion: REMOVE — no callers, possibly dead code");
+    }
+    if callers > 8 {
+        has_sug = true;
+        print("  Suggestion: PROTECT — ");
+        print(int_to_str(callers));
+        println(" callers, changes have wide impact");
+    }
+    if !has_sug {
+        println("  No specific suggestions — function looks well-structured.");
+    }
+
+    // Bind to VM
+    ana_populate_focus(idx);
+    print("  Results bound to VM: load focus.");
+    print(name);
+    println(".role/risk/callers/lines/calls");
+    println("");
+}
+
 fn cmd_suggest() {
     if ana_get_func_count() == 0 {
         println("  No analysis loaded. Use 'analyze <file.m>' first.");
@@ -2205,6 +2340,8 @@ fn main() -> i32 {
             else { cmd_hotspots(""); }
         } else if str_eq(line, "health") {
             cmd_health();
+        } else if str_starts_with(line, "focus ") {
+            cmd_focus(substr(line, 6, len(line) - 6));
         } else if str_eq(line, "suggest") {
             cmd_suggest();
         } else if str_eq(line, "coupling") || str_starts_with(line, "coupling ") {
