@@ -1,5 +1,5 @@
-// c_parser.m — C structural parser written in M
-// Phase 2: M reads C code structure
+// c_parser.m — C parser + translator written in M
+// Phase 2: M reads C, writes M
 //
 // Parses C token streams into structural representation:
 // - Function definitions/declarations with signatures
@@ -2957,7 +2957,7 @@ fn test_c_parser() -> i32 {
 
     if tests_passed == tests_run {
         println("");
-        println("M reads C, writes M. Cross-language translation works.");
+        println("M reads C, writes M. Bootstrap self-translation works.");
     }
 
     return tests_passed == tests_run;
