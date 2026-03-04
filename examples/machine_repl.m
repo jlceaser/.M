@@ -168,6 +168,7 @@ fn show_help() {
     println("    project <file.m>       Analyze file + all dependencies");
     println("    where <name>           Find which file defines a function");
     println("    complexity [N]         Show N most complex functions");
+    println("    self                   Machine analyzes itself");
     println("");
     println("  Values: integers (42), strings (\"hello\"), booleans (true/false)");
     println("  Approximate: bind x ~ 100  (value with uncertainty)");
@@ -795,6 +796,67 @@ fn cmd_where(args: string) {
     println(file);
 }
 
+fn cmd_self() {
+    // Machine analyzes itself — the REPL and all its dependencies
+    println("  Machine analyzing itself...");
+    ana_multi_init();
+    let n: i32 = ana_resolve_deps("examples/machine_repl.m");
+
+    println("");
+    println("  Self-analysis complete:");
+    print("  Files: ");
+    println(int_to_str(ana_all_file_count));
+    print("  Total functions: ");
+    println(int_to_str(ana_all_func_total));
+
+    var i: i32 = 0;
+    while i < ana_all_file_count {
+        print("    ");
+        print(ana_all_file_path(i));
+        print("  (");
+        print(int_to_str(ana_all_file_func_count(i)));
+        println(" funcs)");
+        i = i + 1;
+    }
+
+    // Now analyze the REPL itself for detailed metrics
+    analyze_file("examples/machine_repl.m");
+    ana_populate_vm();
+    ana_populate_complexity();
+
+    let tick: i32 = vm_get_tick();
+    env_bind("_self", val_str("machine_repl.m"), tick, "self");
+    env_bind("_self_funcs", val_i32(ana_all_func_total), tick, "self");
+    env_bind("_self_files", val_i32(ana_all_file_count), tick, "self");
+
+    println("");
+    print("  REPL: ");
+    print(int_to_str(ana_get_func_count()));
+    print(" functions, ");
+    print(int_to_str(ana_get_lines()));
+    println(" lines");
+    print("  Most complex: ");
+
+    // Find most complex in REPL
+    var max_c: i32 = 0;
+    var max_name: string = "";
+    i = 0;
+    while i < ana_get_func_count() {
+        let c: i32 = ana_func_complexity(i);
+        if c > max_c {
+            max_c = c;
+            max_name = ana_func_name(i);
+        }
+        i = i + 1;
+    }
+    print(max_name);
+    print(" (~");
+    print(int_to_str(max_c));
+    println(")");
+    println("");
+    println("  Machine knows itself.");
+}
+
 fn cmd_complexity(args: string) {
     if ana_get_func_count() == 0 {
         println("  No analysis loaded. Use 'analyze <file.m>' first.");
@@ -1368,6 +1430,8 @@ fn main() -> i32 {
         } else if str_eq(line, "complexity") || str_starts_with(line, "complexity ") {
             if len(line) > 11 { cmd_complexity(substr(line, 11, len(line) - 11)); }
             else { cmd_complexity(""); }
+        } else if str_eq(line, "self") {
+            cmd_self();
         } else if str_starts_with(line, "bind ") {
             cmd_bind(substr(line, 5, len(line) - 5));
         } else if str_starts_with(line, "load ") {
