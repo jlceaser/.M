@@ -721,6 +721,46 @@ static VMResult run(VM *vm) {
             break;
         }
 
+        case OP_BUILTIN_READ_LINE: {
+            char buf[4096];
+            if (fgets(buf, sizeof(buf), stdin) != NULL) {
+                /* Strip trailing newline */
+                int slen = (int)strlen(buf);
+                while (slen > 0 && (buf[slen-1] == '\n' || buf[slen-1] == '\r'))
+                    slen--;
+                char *s = tohum_alloc(slen + 1);
+                memcpy(s, buf, slen);
+                s[slen] = '\0';
+                Val result = {0};
+                result.type = VAL_STRING;
+                result.s = s;
+                result.s_len = slen;
+                push(vm, result);
+            } else {
+                /* EOF — return "\x04" (EOT marker) */
+                char *s = tohum_alloc(2);
+                s[0] = 4; /* EOT */
+                s[1] = '\0';
+                Val result = {0};
+                result.type = VAL_STRING;
+                result.s = s;
+                result.s_len = 1;
+                push(vm, result);
+            }
+            break;
+        }
+
+        case OP_BUILTIN_FLUSH: {
+            /* Flush buffered output to stdout immediately */
+            if (vm->output_len > 0) {
+                fwrite(vm->output, 1, vm->output_len, stdout);
+                fflush(stdout);
+                vm->output_len = 0;
+            }
+            push(vm, make_int(0));
+            break;
+        }
+
         default:
             vm_set_error(vm, "unknown opcode: %d", op);
             return VM_ERROR;

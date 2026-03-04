@@ -607,6 +607,12 @@ fn OP_BUILTIN_ARGV() -> i32 { return 54; }
 // File output opcode
 fn OP_BUILTIN_WRITE_FILE() -> i32 { return 55; }
 
+// Stdin opcode
+fn OP_BUILTIN_READ_LINE() -> i32 { return 56; }
+
+// Output control opcode
+fn OP_BUILTIN_FLUSH() -> i32 { return 57; }
+
 // ── Per-function bytecode chunk ──────────────────────
 
 // Bytecode: flat array of bytes per function
@@ -924,6 +930,18 @@ fn gen_expr(idx: i32) -> i32 {
                 gen_expr(child(arg_start, 1));
             }
             emit_byte(OP_BUILTIN_WRITE_FILE());
+            return 0;
+        }
+
+        // Built-in: read_line() -> string
+        if str_eq(callee_name, "read_line") {
+            emit_byte(OP_BUILTIN_READ_LINE());
+            return 0;
+        }
+
+        // Built-in: flush() -> void
+        if str_eq(callee_name, "flush") {
+            emit_byte(OP_BUILTIN_FLUSH());
             return 0;
         }
 
@@ -1775,6 +1793,16 @@ fn vm_run_func(fi: i32, argc: i32) -> i32 {
             write_file(path, content);
             vm_push_bool(1);
 
+        } else if op == OP_BUILTIN_READ_LINE() {
+            vm_push_str(read_line());
+
+        } else if op == OP_BUILTIN_FLUSH() {
+            // Flush buffered output through to stdout
+            print(vm_output);
+            vm_output = "";
+            flush();
+            vm_push_int(0);
+
         // ── Array built-ins ──────────────────────────
         } else if op == OP_ARRAY_NEW() {
             vm_pop_type(); // pop capacity hint (not used)
@@ -2165,6 +2193,7 @@ fn infer_type(idx: i32) -> string {
         if str_eq(name, "substr") { return "string"; }
         if str_eq(name, "char_to_str") { return "string"; }
         if str_eq(name, "read_file") { return "string"; }
+        if str_eq(name, "read_line") { return "string"; }
         if str_eq(name, "argv") { return "string"; }
         if str_eq(name, "len") { return "i32"; }
         if str_eq(name, "char_at") { return "i32"; }
@@ -2577,7 +2606,16 @@ fn c_runtime() -> string {
     r = cc(r, "static void write_file(const char* path, const char* content) {\n");
     r = cc(r, "    FILE* f = fopen(path, \"wb\");\n");
     r = cc(r, "    if (f) { fputs(content, f); fclose(f); }\n");
-    r = cc(r, "}\n\n");
+    r = cc(r, "}\n");
+    r = cc(r, "static const char* read_line(void) {\n");
+    r = cc(r, "    static char buf[4096];\n");
+    r = cc(r, "    if (fgets(buf, sizeof(buf), stdin) == NULL) return \"\";\n");
+    r = cc(r, "    int n = (int)strlen(buf);\n");
+    r = cc(r, "    while (n > 0 && (buf[n-1] == '\\n' || buf[n-1] == '\\r')) n--;\n");
+    r = cc(r, "    buf[n] = 0;\n");
+    r = cc(r, "    return buf;\n");
+    r = cc(r, "}\n");
+    r = cc(r, "static long long flush(void) { fflush(stdout); return 0; }\n\n");
     return r;
 }
 

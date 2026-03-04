@@ -99,6 +99,12 @@ typedef enum {
 
     /* File output */
     OP_BUILTIN_WRITE_FILE, /* write_file(path, content) -> bool */
+
+    /* Stdin */
+    OP_BUILTIN_READ_LINE,  /* read_line() -> string: read line from stdin */
+
+    /* Output control */
+    OP_BUILTIN_FLUSH,      /* flush() -> void: flush buffered output to stdout */
 } OpCode;
 
 /* --- Value types in the VM --- */

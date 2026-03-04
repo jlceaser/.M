@@ -405,6 +405,18 @@ static void gen_expr(CodegenCtx *ctx, Expr *e) {
                 break;
             }
 
+            /* read_line() — read line from stdin */
+            if (nlen == 9 && memcmp(name, "read_line", 9) == 0) {
+                emit(ctx, OP_BUILTIN_READ_LINE, e->line);
+                break;
+            }
+
+            /* flush() — flush buffered output to stdout */
+            if (nlen == 5 && memcmp(name, "flush", 5) == 0) {
+                emit(ctx, OP_BUILTIN_FLUSH, e->line);
+                break;
+            }
+
             /* println(expr) — print with newline */
             if (nlen == 7 && memcmp(name, "println", 7) == 0) {
                 if (e->arg_count >= 1) {

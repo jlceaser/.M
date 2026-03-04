@@ -337,6 +337,41 @@ fn env_forget(name: string) -> i32 {
     return 0;
 }
 
+// ── Environment query helpers (for REPL) ─────────────
+
+fn env_get_count() -> i32 { return env_count; }
+
+fn env_get_name(idx: i32) -> string {
+    if idx < 0 || idx >= env_count { return ""; }
+    return sp_get(array_get(env_names, idx));
+}
+
+fn env_get_timeline(name: string) -> i32 {
+    let idx: i32 = env_find(name);
+    if idx < 0 { return 0 - 1; }
+    return array_get(env_tl_ids, idx);
+}
+
+fn env_is_forgotten(name: string) -> bool {
+    let idx: i32 = env_find(name);
+    if idx < 0 { return true; }
+    return array_get(env_forgotten, idx) != 0;
+}
+
+fn vm_get_tick() -> i32 { return vm_tick; }
+
+fn vm_reset_code() -> i32 {
+    code = array_new(0);
+    code_len = 0;
+    stack_top = 0;
+    vm_halted = false;
+    vm_error = false;
+    return 0;
+}
+
+// Alias for vm_exec — use from REPL
+fn vm_run() -> i32 { return vm_exec(); }
+
 // ── Bytecode program ─────────────────────────────────
 
 var code: i32 = 0;

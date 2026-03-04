@@ -8,3 +8,4 @@ compile_commands.json
 *.lib
 CMakeUserPresets.json
 .claude/
+.machine_state
