@@ -341,6 +341,10 @@ fn ana_extract_structure() {
 // ── Public API ───────────────────────────────────────
 
 fn analyze_file(path: string) -> i32 {
+    // Save current analysis as "previous" before re-initializing
+    if ana_fn_count > 0 {
+        ana_save_prev();
+    }
     ana_init();
     ana_file = path;
     ana_source = read_file(path);
@@ -548,6 +552,147 @@ fn ana_populate_complexity() {
         env_bind(key, val_approx(score, conf), tick, "analyze");
         i = i + 1;
     }
+}
+
+// ── Diff / change detection ─────────────────────────
+// Stores a snapshot of the previous analysis so that re-analyzing
+// a file reveals what changed: new functions, removed functions,
+// functions whose size or call count changed.
+
+var ana_prev_file: string = "";
+var ana_prev_fn_names: i32 = 0;     // array of sp-indices
+var ana_prev_fn_lines: i32 = 0;     // array of line counts
+var ana_prev_fn_calls: i32 = 0;     // array of call counts
+var ana_prev_fn_count: i32 = 0;
+var ana_prev_src_lines: i32 = 0;
+var ana_has_prev: bool = false;
+
+// Save current analysis as "previous" (called automatically by analyze_file).
+fn ana_save_prev() {
+    ana_prev_file = ana_file;
+    ana_prev_src_lines = ana_src_lines;
+    ana_prev_fn_count = ana_fn_count;
+
+    ana_prev_fn_names = array_new(0);
+    ana_prev_fn_lines = array_new(0);
+    ana_prev_fn_calls = array_new(0);
+
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        array_push(ana_prev_fn_names, array_get(ana_fn_names, i));
+        array_push(ana_prev_fn_lines, ana_func_lines(i));
+        array_push(ana_prev_fn_calls, ana_func_call_count(i));
+        i = i + 1;
+    }
+    ana_has_prev = true;
+}
+
+fn ana_diff_reset() {
+    ana_has_prev = false;
+    ana_prev_fn_count = 0;
+    ana_fn_count = 0;
+}
+
+fn ana_has_previous() -> bool { return ana_has_prev; }
+fn ana_prev_get_file() -> string { return ana_prev_file; }
+fn ana_prev_get_func_count() -> i32 { return ana_prev_fn_count; }
+fn ana_prev_get_lines() -> i32 { return ana_prev_src_lines; }
+
+fn ana_prev_func_name(idx: i32) -> string {
+    if idx < 0 || idx >= ana_prev_fn_count { return ""; }
+    return sp_get(array_get(ana_prev_fn_names, idx));
+}
+
+fn ana_prev_func_lines(idx: i32) -> i32 {
+    if idx < 0 || idx >= ana_prev_fn_count { return 0; }
+    return array_get(ana_prev_fn_lines, idx);
+}
+
+fn ana_prev_func_calls(idx: i32) -> i32 {
+    if idx < 0 || idx >= ana_prev_fn_count { return 0; }
+    return array_get(ana_prev_fn_calls, idx);
+}
+
+// Find a function by name in the previous analysis. Returns -1 if not found.
+fn ana_prev_find_func(name: string) -> i32 {
+    var i: i32 = 0;
+    while i < ana_prev_fn_count {
+        if str_eq(ana_prev_func_name(i), name) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+// ── Diff computation ────────────────────────────────
+// Returns arrays of sp-indices for new/removed/changed function names.
+
+// Functions in current but not in previous.
+fn ana_diff_new() -> i32 {
+    var result: i32 = array_new(0);
+    if !ana_has_prev { return result; }
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        let name: string = ana_func_name(i);
+        if ana_prev_find_func(name) < 0 {
+            array_push(result, array_get(ana_fn_names, i));
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+// Functions in previous but not in current.
+fn ana_diff_removed() -> i32 {
+    var result: i32 = array_new(0);
+    if !ana_has_prev { return result; }
+    var i: i32 = 0;
+    while i < ana_prev_fn_count {
+        let name: string = ana_prev_func_name(i);
+        if ana_find_func(name) < 0 {
+            array_push(result, array_get(ana_prev_fn_names, i));
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+// Functions in both but with different line count or call count.
+// Returns array of sp-indices for changed function names.
+fn ana_diff_changed() -> i32 {
+    var result: i32 = array_new(0);
+    if !ana_has_prev { return result; }
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        let name: string = ana_func_name(i);
+        let prev_idx: i32 = ana_prev_find_func(name);
+        if prev_idx >= 0 {
+            let cur_lines: i32 = ana_func_lines(i);
+            let prev_lines: i32 = ana_prev_func_lines(prev_idx);
+            let cur_calls: i32 = ana_func_call_count(i);
+            let prev_calls: i32 = ana_prev_func_calls(prev_idx);
+            if cur_lines != prev_lines || cur_calls != prev_calls {
+                array_push(result, array_get(ana_fn_names, i));
+            }
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+// Get the line delta for a changed function (current - previous).
+fn ana_diff_line_delta(func_name: string) -> i32 {
+    let cur_idx: i32 = ana_find_func(func_name);
+    let prev_idx: i32 = ana_prev_find_func(func_name);
+    if cur_idx < 0 || prev_idx < 0 { return 0; }
+    return ana_func_lines(cur_idx) - ana_prev_func_lines(prev_idx);
+}
+
+// Get the call count delta for a changed function (current - previous).
+fn ana_diff_call_delta(func_name: string) -> i32 {
+    let cur_idx: i32 = ana_find_func(func_name);
+    let prev_idx: i32 = ana_prev_find_func(func_name);
+    if cur_idx < 0 || prev_idx < 0 { return 0; }
+    return ana_func_call_count(cur_idx) - ana_prev_func_calls(prev_idx);
 }
 
 // ── Cross-file dependency analysis ──────────────────

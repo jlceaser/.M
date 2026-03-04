@@ -363,6 +363,85 @@ fn test_complexity_vm_binding() {
     assert_true("complexity value > 80", val_get_int(vid) > 80);
 }
 
+// ── Tests: Diff / change detection ──────────────────
+
+fn test_diff_same_file() {
+    println("-- test_diff_same_file --");
+    vm_init();
+    ana_diff_reset();
+    // First analyze (fresh diff state)
+    analyze_file("examples/machine_vm.m");
+    assert_true("no previous yet", !ana_has_previous());
+
+    // Second analyze (same file) — now previous exists
+    analyze_file("examples/machine_vm.m");
+    assert_true("has previous", ana_has_previous());
+    assert_eq_s("prev file", "examples/machine_vm.m", ana_prev_get_file());
+
+    // Same file = no new, no removed, no changed
+    let new_fns: i32 = ana_diff_new();
+    let rem_fns: i32 = ana_diff_removed();
+    let chg_fns: i32 = ana_diff_changed();
+    assert_eq_i("no new funcs", 0, array_len(new_fns));
+    assert_eq_i("no removed funcs", 0, array_len(rem_fns));
+    assert_eq_i("no changed funcs", 0, array_len(chg_fns));
+}
+
+fn test_diff_different_files() {
+    println("-- test_diff_different_files --");
+    vm_init();
+    // First: analyze machine_vm.m (95 functions)
+    analyze_file("examples/machine_vm.m");
+    let vm_fns: i32 = ana_get_func_count();
+
+    // Second: analyze machine_asm.m (different file, ~40 functions)
+    analyze_file("examples/machine_asm.m");
+    assert_true("has previous", ana_has_previous());
+    assert_eq_s("prev file is vm", "examples/machine_vm.m", ana_prev_get_file());
+
+    // asm functions should appear as "new" (not in vm)
+    let new_fns: i32 = ana_diff_new();
+    assert_true("new funcs > 0", array_len(new_fns) > 0);
+
+    // vm functions should appear as "removed" (not in asm)
+    let rem_fns: i32 = ana_diff_removed();
+    assert_true("removed funcs > 0", array_len(rem_fns) > 0);
+
+    // Prev count should match vm
+    assert_eq_i("prev func count matches vm", vm_fns, ana_prev_get_func_count());
+}
+
+fn test_diff_line_delta() {
+    println("-- test_diff_line_delta --");
+    vm_init();
+    // Analyze vm first, then asm
+    analyze_file("examples/machine_vm.m");
+    analyze_file("examples/machine_asm.m");
+
+    // Line delta for a function that exists in both: should be 0
+    // Both files have functions from machine_vm.m that are NOT in asm
+    // So line_delta for shared functions...
+    // Actually the two files have no shared functions, so changed should be 0
+    let chg_fns: i32 = ana_diff_changed();
+    assert_eq_i("no shared funcs changed", 0, array_len(chg_fns));
+}
+
+fn test_diff_prev_lookup() {
+    println("-- test_diff_prev_lookup --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    analyze_file("examples/machine_asm.m");
+
+    // vm_exec was in previous (machine_vm.m)
+    let prev_idx: i32 = ana_prev_find_func("vm_exec");
+    assert_true("vm_exec in prev", prev_idx >= 0);
+    assert_true("vm_exec prev lines > 300", ana_prev_func_lines(prev_idx) > 300);
+
+    // asm_line is in current but not in previous
+    let asm_idx: i32 = ana_prev_find_func("asm_line");
+    assert_eq_i("asm_line not in prev", 0 - 1, asm_idx);
+}
+
 // ── Run all tests ────────────────────────────────────
 
 fn main() -> i32 {
@@ -391,6 +470,12 @@ fn main() -> i32 {
     // Complexity tests
     test_complexity_scores();
     test_complexity_vm_binding();
+
+    // Diff / change detection tests
+    test_diff_same_file();
+    test_diff_different_files();
+    test_diff_line_delta();
+    test_diff_prev_lookup();
 
     println("==============================");
     print(int_to_str(test_pass));

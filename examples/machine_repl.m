@@ -21,6 +21,7 @@
 //   search <pattern>          -search functions matching substring
 //   deps                      -show dependency tree (use directives)
 //   top [N]                   -show N largest functions (default 10)
+//   diff                      -show changes between two analyses
 //   stats                     -show code metrics
 //   help                      -show command reference
 //   quit / exit               -exit the shell
@@ -168,6 +169,7 @@ fn show_help() {
     println("    project <file.m>       Analyze file + all dependencies");
     println("    where <name>           Find which file defines a function");
     println("    complexity [N]         Show N most complex functions");
+    println("    diff                   Show changes between analyses");
     println("    self                   Machine analyzes itself");
     println("");
     println("  Values: integers (42), strings (\"hello\"), booleans (true/false)");
@@ -924,6 +926,149 @@ fn cmd_complexity(args: string) {
     }
 }
 
+fn cmd_diff() {
+    if !ana_has_previous() {
+        println("  No previous analysis to compare. Run 'analyze' twice.");
+        return;
+    }
+    if ana_get_func_count() == 0 {
+        println("  No current analysis. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    // Header
+    println("");
+    print("  Diff: ");
+    print(ana_prev_get_file());
+    print(" -> ");
+    println(ana_get_file());
+    println("  ────────────────────────────────────");
+
+    // Summary line changes
+    let prev_lines: i32 = ana_prev_get_lines();
+    let cur_lines: i32 = ana_get_lines();
+    let line_delta: i32 = cur_lines - prev_lines;
+    print("  Lines: ");
+    print(int_to_str(prev_lines));
+    print(" -> ");
+    print(int_to_str(cur_lines));
+    if line_delta > 0 {
+        print(" (+");
+        print(int_to_str(line_delta));
+        println(")");
+    } else if line_delta < 0 {
+        print(" (");
+        print(int_to_str(line_delta));
+        println(")");
+    } else {
+        println(" (unchanged)");
+    }
+
+    // Summary function count changes
+    let prev_fns: i32 = ana_prev_get_func_count();
+    let cur_fns: i32 = ana_get_func_count();
+    let fn_delta: i32 = cur_fns - prev_fns;
+    print("  Functions: ");
+    print(int_to_str(prev_fns));
+    print(" -> ");
+    print(int_to_str(cur_fns));
+    if fn_delta > 0 {
+        print(" (+");
+        print(int_to_str(fn_delta));
+        println(")");
+    } else if fn_delta < 0 {
+        print(" (");
+        print(int_to_str(fn_delta));
+        println(")");
+    } else {
+        println(" (unchanged)");
+    }
+
+    // New functions
+    let new_fns: i32 = ana_diff_new();
+    let new_count: i32 = array_len(new_fns);
+    if new_count > 0 {
+        println("");
+        print("  + New (");
+        print(int_to_str(new_count));
+        println("):");
+        var i: i32 = 0;
+        while i < new_count {
+            let name: string = sp_get(array_get(new_fns, i));
+            let idx: i32 = ana_find_func(name);
+            print("    + ");
+            print(name);
+            print("  ");
+            print(int_to_str(ana_func_lines(idx)));
+            print("L  ");
+            print(int_to_str(ana_func_call_count(idx)));
+            println(" calls");
+            i = i + 1;
+        }
+    }
+
+    // Removed functions
+    let rem_fns: i32 = ana_diff_removed();
+    let rem_count: i32 = array_len(rem_fns);
+    if rem_count > 0 {
+        println("");
+        print("  - Removed (");
+        print(int_to_str(rem_count));
+        println("):");
+        var i: i32 = 0;
+        while i < rem_count {
+            let name: string = sp_get(array_get(rem_fns, i));
+            let prev_idx: i32 = ana_prev_find_func(name);
+            print("    - ");
+            print(name);
+            print("  was ");
+            print(int_to_str(ana_prev_func_lines(prev_idx)));
+            print("L  ");
+            print(int_to_str(ana_prev_func_calls(prev_idx)));
+            println(" calls");
+            i = i + 1;
+        }
+    }
+
+    // Changed functions
+    let chg_fns: i32 = ana_diff_changed();
+    let chg_count: i32 = array_len(chg_fns);
+    if chg_count > 0 {
+        println("");
+        print("  ~ Changed (");
+        print(int_to_str(chg_count));
+        println("):");
+        var i: i32 = 0;
+        while i < chg_count {
+            let name: string = sp_get(array_get(chg_fns, i));
+            let ld: i32 = ana_diff_line_delta(name);
+            let cd: i32 = ana_diff_call_delta(name);
+            print("    ~ ");
+            print(name);
+            if ld != 0 {
+                print("  lines ");
+                if ld > 0 { print("+"); }
+                print(int_to_str(ld));
+            }
+            if cd != 0 {
+                print("  calls ");
+                if cd > 0 { print("+"); }
+                print(int_to_str(cd));
+            }
+            println("");
+            i = i + 1;
+        }
+    }
+
+    // No changes
+    if new_count == 0 && rem_count == 0 && chg_count == 0 && line_delta == 0 {
+        println("");
+        println("  No structural changes detected.");
+    }
+
+    println("");
+}
+
 fn cmd_search(args: string) {
     let pattern: string = str_trim(args);
     if len(pattern) == 0 {
@@ -1430,6 +1575,8 @@ fn main() -> i32 {
         } else if str_eq(line, "complexity") || str_starts_with(line, "complexity ") {
             if len(line) > 11 { cmd_complexity(substr(line, 11, len(line) - 11)); }
             else { cmd_complexity(""); }
+        } else if str_eq(line, "diff") {
+            cmd_diff();
         } else if str_eq(line, "self") {
             cmd_self();
         } else if str_starts_with(line, "bind ") {
